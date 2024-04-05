@@ -48,6 +48,8 @@ function takesALoadedAandB(a: Loaded<A, "b">) {}
 
 function takesEverything(a: Loaded<A, "b" | "b.c">) {}
 
+function takesJustNested(a: Loaded<A, "b.c">) {}
+
 beforeAll(async () => {
   orm = await MikroORM.init({
     dbName: ":memory:",
@@ -76,7 +78,13 @@ test("basic CRUD example", async () => {
   });
   // @ts-expect-error
   takesEverything(loadedA);
-  // @ts-expect-error -- this should fail?
+  // @ts-expect-error -- this should fail? We only have loaded 'b'
   takesEverything(loadedAB);
   takesEverything(loadedABC); // This is right
+
+  // @ts-expect-error
+  takesJustNested(loadedA);
+  // @ts-expect-error -- should this fail?
+  takesJustNested(loadedAB);
+  takesJustNested(loadedABC);
 });
