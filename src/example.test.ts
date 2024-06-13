@@ -2,12 +2,11 @@ import {
   Collection,
   Entity,
   Loaded,
-  ManyToMany,
   ManyToOne,
   MikroORM,
   OneToMany,
   PrimaryKey,
-  Rel,
+  Ref,
 } from "@mikro-orm/sqlite";
 
 @Entity()
@@ -15,7 +14,7 @@ class A {
   @PrimaryKey()
   id!: number;
 
-  @ManyToMany(() => B, "a", { owner: true })
+  @OneToMany(() => B, (b) => b.a)
   b = new Collection<B>(this);
 }
 
@@ -24,11 +23,11 @@ class B {
   @PrimaryKey()
   id!: number;
 
-  @ManyToMany(() => A, "b")
-  a = new Collection<A>(this);
+  @ManyToOne(() => A, { ref: true })
+  a!: Ref<A>;
 
-  @ManyToOne(() => C, { nullable: true })
-  c?: Rel<C>;
+  @OneToMany(() => C, (c) => c.b)
+  c = new Collection<C>(this);
 }
 
 @Entity()
@@ -36,24 +35,30 @@ class C {
   @PrimaryKey()
   id!: number;
 
-  @OneToMany(() => B, (b) => b.c)
-  b = new Collection<B>(this);
+  @ManyToOne(() => B, { ref: true })
+  b!: Ref<B>;
+
+  @OneToMany(() => D, (d) => d.c)
+  d = new Collection<D>(this);
+}
+
+@Entity()
+class D {
+  @PrimaryKey()
+  id!: number;
+
+  @ManyToOne(() => C, { ref: true })
+  c!: Ref<C>;
 }
 
 let orm: MikroORM;
 
-function takesALoadedA(a: Loaded<A>) {}
-
-function takesALoadedAandB(a: Loaded<A, "b">) {}
-
-function takesEverything(a: Loaded<A, "b" | "b.c">) {}
-
-function takesJustNested(a: Loaded<A, "b.c">) {}
+function requireBCD(a: Loaded<A, "b.c.d">) {}
 
 beforeAll(async () => {
   orm = await MikroORM.init({
     dbName: ":memory:",
-    entities: [A, B, C],
+    entities: [A, B, C, D],
     debug: ["query", "query-params"],
     allowGlobalContext: true, // only for testing
   });
@@ -65,26 +70,13 @@ afterAll(async () => {
 });
 
 test("basic CRUD example", async () => {
-  const loadedA = await orm.em.findOneOrFail(A, 1);
-  takesALoadedA(loadedA);
-
   const loadedAB = await orm.em.findOneOrFail(A, 1, { populate: ["b"] });
-  // @ts-expect-error
-  takesALoadedAandB(loadedA);
-  takesALoadedAandB(loadedAB);
-
-  const loadedABC = await orm.em.findOneOrFail(A, 1, {
-    populate: ["b", "b.c"],
-  });
-  // @ts-expect-error
-  takesEverything(loadedA);
-  // @ts-expect-error -- this should fail? We only have loaded 'b'
-  takesEverything(loadedAB);
-  takesEverything(loadedABC); // This is right
+  const loadedABC = await orm.em.findOneOrFail(A, 1, { populate: ["b.c"] });
+  const loadedABCD = await orm.em.findOneOrFail(A, 1, { populate: ["b.c.d"] });
 
   // @ts-expect-error
-  takesJustNested(loadedA);
-  // @ts-expect-error -- should this fail?
-  takesJustNested(loadedAB);
-  takesJustNested(loadedABC);
+  requireBCD(loadedAB);
+  // @ts-expect-error -- should this fail? because `d` does not populated
+  requireBCD(loadedABC);
+  requireBCD(loadedABCD);
 });
